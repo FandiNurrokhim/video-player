@@ -92,6 +92,33 @@ def fmt_short(ms: int) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+def clean_subtitle(text: str) -> str:
+    """Ubah teks subtitle (ASS/SSA, SRT, HTML) menjadi teks biasa.
+
+    Contoh: '{\\fad(500,500)\\pos(645,212)}Halo\\NDunia' -> 'Halo\\nDunia'.
+    Baris gambar vektor ASS ({\\p1}m 0 0 l ...) dibuang karena bukan teks.
+    """
+    if not text:
+        return ""
+    lines = []
+    for raw in text.replace("\r", "").split("\n"):
+        out, drawing, pos = [], False, 0
+        for m in re.finditer(r"\{([^}]*)\}", raw):
+            if not drawing:
+                out.append(raw[pos:m.start()])
+            p = re.findall(r"\\p(\d+)", m.group(1))  # \p1 = mulai mode gambar, \p0 = selesai
+            if p:
+                drawing = p[-1] != "0"
+            pos = m.end()
+        if not drawing:
+            out.append(raw[pos:])
+        line = "".join(out)
+        line = line.replace("\\N", "\n").replace("\\n", "\n").replace("\\h", " ")
+        line = re.sub(r"</?[a-zA-Z][^>]*>", "", line)  # tag HTML: <i>, <b>, <font ...>
+        lines.extend(s.strip() for s in line.split("\n"))
+    return "\n".join(s for s in lines if s)
+
+
 def wrap_text(text: str, fm: QFontMetrics, width: int, max_lines: int) -> list:
     """Bungkus teks ke beberapa baris (juga memotong nama file panjang tanpa spasi)."""
     lines, cur = [], ""
@@ -522,7 +549,7 @@ class VideoCanvas(QWidget):
         self.win.sidebar.update()  # sidebar ikut berwarna ambient
 
     def set_subtitle(self, text):
-        self.subtitle = re.sub(r"<[^>]+>", "", text or "").strip()
+        self.subtitle = clean_subtitle(text)
         self.update()
 
     def clear(self):
