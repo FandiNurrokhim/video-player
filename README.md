@@ -20,8 +20,8 @@ Pemutar video desktop untuk Windows yang dibuat dengan **Python + PySide6 (Qt 6)
 ## Menjalankan dari source
 
 ```powershell
-git clone https://github.com/<username>/pemutar-video.git
-cd pemutar-video
+git clone https://github.com/FandiNurrokhim/video-player.git
+cd video-player
 
 python -m venv venv
 venv\Scripts\activate
