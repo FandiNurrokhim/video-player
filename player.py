@@ -583,7 +583,8 @@ class VideoCanvas(QWidget):
             self._draw_subtitle(p, w, h)
 
         # Overlay saat pause: video digelapkan + ikon play besar di tengah
-        if self.win.current and self.win.player.playbackState() != QMediaPlayer.PlayingState:
+        if self.win.current and self.win.player.playbackState() != QMediaPlayer.PlayingState \
+                and not self.win._seeking:
             p.fillRect(self.rect(), QColor(0, 0, 0, 120))
             p.setRenderHint(QPainter.Antialiasing)
             r = max(28, min(56, int(min(w, h) * 0.09)))
@@ -1241,6 +1242,13 @@ class Player(QMainWindow):
         self._pending_seek = 0
         self._last_saved_pos = 0
         self.resume_note = ""
+        # Lompat posisi: pause -> setPosition -> play, agar audio tidak tertinggal dari video
+        self._seeking = False
+        self._seek_target = 0
+        self._resume_timer = QTimer(self)
+        self._resume_timer.setSingleShot(True)
+        self._resume_timer.setInterval(150)  # tunggu jika tombol ditekan berulang-ulang
+        self._resume_timer.timeout.connect(self._finish_seek)
 
         # Mesin pemutar
         self.player = QMediaPlayer(self)
@@ -1450,8 +1458,9 @@ class Player(QMainWindow):
         self.btn_open.clicked.connect(self.open_file)
         self.btn_pip.clicked.connect(self.toggle_pip)
         self.btn_full.clicked.connect(self.toggle_fullscreen)
+        self.slider.sliderPressed.connect(self._begin_seek)
         self.slider.sliderMoved.connect(self.player.setPosition)
-        self.slider.sliderReleased.connect(lambda: self.player.setPosition(self.slider.value()))
+        self.slider.sliderReleased.connect(lambda: self.seek_to(self.slider.value()))
 
         col = QVBoxLayout(self.controls)
         col.setContentsMargins(20, 36, 20, 10)
@@ -1895,6 +1904,8 @@ class Player(QMainWindow):
 
     def load(self, path: str, start_ms: int = 0, autoplay: bool = True):
         path = os.path.normpath(os.path.abspath(path))
+        self._resume_timer.stop()
+        self._seeking = False
         self._pending_seek = start_ms  # dijalankan saat media selesai dimuat (on_media_status)
         self.resume_note = "" if autoplay else f"Lanjutkan dari {fmt(start_ms)}"
         self._last_saved_pos = start_ms
@@ -1967,15 +1978,40 @@ class Player(QMainWindow):
     def toggle_play(self):
         if not self.current:
             return
+        if self._seeking:  # sedang melompat (pause sementara) -> batalkan play otomatis
+            self._resume_timer.stop()
+            self._seeking = False
+            self.on_state(self.player.playbackState())
+            return
         if self.player.playbackState() == QMediaPlayer.PlayingState:
             self.player.pause()
         else:
             self.player.play()
 
     def seek(self, delta_ms: int):
-        pos = max(0, min(self.player.duration(), self.player.position() + delta_ms))
-        self.player.setPosition(pos)
+        base = self._seek_target if self._seeking else self.player.position()
+        self.seek_to(base + delta_ms)
         self.show_controls()
+
+    def _begin_seek(self):
+        """Pause sementara selama melompat (hanya jika video sedang diputar)."""
+        if not self._seeking and self.player.playbackState() == QMediaPlayer.PlayingState:
+            self._seeking = True
+            self.player.pause()
+
+    def seek_to(self, pos: int):
+        pos = max(0, min(self.player.duration(), int(pos)))
+        self._begin_seek()
+        self._seek_target = pos
+        self.player.setPosition(pos)
+        if self._seeking:
+            self._resume_timer.start()
+
+    def _finish_seek(self):
+        # play ulang membuat audio & video mulai bersamaan lagi dari posisi baru
+        if self._seeking:
+            self._seeking = False
+            self.player.play()
 
     def on_volume(self, v):
         self.audio.setVolume(v / 100)
@@ -2022,7 +2058,7 @@ class Player(QMainWindow):
     def skip_intro(self):
         self._intro_done = True
         self.skip_box.hide()
-        self.player.setPosition(INTRO_END)
+        self.seek_to(INTRO_END)
 
     def dismiss_skip_intro(self):
         self._intro_done = True
@@ -2144,6 +2180,8 @@ class Player(QMainWindow):
             self.tree.viewport().update()
 
     def on_state(self, state):
+        if self._seeking:
+            return  # pause sementara saat melompat: jangan tampilkan overlay pause
         playing = state == QMediaPlayer.PlayingState
         if playing:
             self.resume_note = ""
