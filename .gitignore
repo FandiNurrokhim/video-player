@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Hasil build PyInstaller
+build/
+dist/
+
+# Cache thumbnail lokal (jika dibuat di folder proyek)
+.cache/
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
